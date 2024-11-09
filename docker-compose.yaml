@@ -1,0 +1,72 @@
+version: '3.8'
+
+services:
+  llama-indexer:
+    depends_on:
+      - mistral-tensorrt-llm-server
+    image: llama-index:latest 
+    build:
+      context: llama-indexer
+      dockerfile: Dockerfile
+    container_name: llama-indexer
+    volumes:
+      - ./llama-indexer/data:/app/data  
+      - ./llama-indexer/storage:/app/storage
+    env_file:
+      - .env
+
+    networks:
+      - ai-network
+    restart: unless-stopped
+    ports:
+      - "8002:8000"  
+    entrypoint: ["python3", "main.py"]
+
+  mistral-tensorrt-llm-server:
+    image: mistral-tensorrt-llm:latest  
+    build:
+      context: mistral-tensorrt-llm-server
+      dockerfile: Dockerfile
+    container_name: mistral-tensorrt-llm
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 2 # change to 1 for single GPU
+              capabilities: [gpu]
+    ports:
+      - "8003:8000"   # TODO remove port
+    volumes:
+      - /media/veracrypt3/models:/models # TODO  change to your path
+    environment:
+      - CUDA_VISIBLE_DEVICES=0,1 # change to 0 for single GPU
+    networks:
+      - ai-network
+    env_file:
+      - .env
+    restart: unless-stopped
+    # entrypoint: ["/bin/bash"]
+    entrypoint: ["python3", 
+    "openai_server.py", "/models/mistral-instruct/tensorrt_format/", "--tp_size=2", "--max_seq_len=4098", "--tokenizer=mistralai/Mistral-Nemo-Instruct-2407"]
+  tensorrtllm-worker:
+    depends_on:
+      - mistral-tensorrt-llm-server
+    image: mistral-tensorrt-llm:latest
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: 2 # change to 1 for single GPU
+              capabilities: [gpu]
+    volumes:
+      - .:/workspace
+      - /media/veracrypt3/models:/models # TODO  chenge to your path
+    entrypoint: ["/bin/bash"]
+    env_file:
+      - .env
+
+networks:
+  ai-network:
+    driver: bridge
